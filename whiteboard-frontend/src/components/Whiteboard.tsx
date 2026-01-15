@@ -4,7 +4,9 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { io } from 'socket.io-client';
 import { useParams } from 'react-router-dom';
 import Konva from 'konva';
-import Cursor from './Cursor'; 
+import Cursor from './Cursor';
+
+//this is whiteboard component
 
 // Initialize Socket
 const socket = io('http://localhost:3001');
@@ -19,6 +21,7 @@ const throttle = (func: Function, limit: number) => {
     }
   };
 };
+
 
 // --- GRID COMPONENT ---
 const Grid = ({ stageScale, stagePos, width, height }: any) => {
