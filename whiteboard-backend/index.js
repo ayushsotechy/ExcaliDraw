@@ -10,79 +10,110 @@ const app = express();
 app.use(cors());
 
 // 1. CONNECT TO MONGODB
-// Replace this string with your actual MongoDB URI if you have one, 
-// or use a local one: "mongodb://localhost:27017/whiteboard"
 mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/whiteboard")
   .then(() => console.log("MONGODB CONNECTED"))
   .catch((err) => console.log(err));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" }, // Allow all origins for now
+  cors: { origin: "*" },
 });
 
 io.on("connection", (socket) => {
   // 1. Join Room & Load Data
   socket.on("join-room", async (roomId) => {
     socket.join(roomId);
+    
+    // Using findOneAndUpdate with upsert to prevent race conditions
     const roomData = await Whiteboard.findOneAndUpdate(
       { roomId },
-      { $setOnInsert: { lines: [] } }, // Only set 'lines' if creating a NEW doc
-      { upsert: true, new: true }      // Create if missing, return the document
+      { $setOnInsert: { lines: [] } }, 
+      { upsert: true, new: true }
     );
+    
+    // Send existing data (Lines, Shapes, Text)
     socket.emit("load-canvas", roomData.lines);
   });
 
-  // 2. DRAWING (Real-time broadcasting only)
-  // We DO NOT save to DB here anymore. This fixes the "Segmentation" bug.
-  socket.on("draw-line", ({ prevPoint, currentPoint, color, strokeWidth, roomId }) => {
+  // 2. DRAWING - PEN/ERASER (Stream of points)
+  // Used for smooth freehand drawing
+  socket.on("draw-line", ({ prevPoint, currentPoint, color, strokeWidth, tool, roomId }) => {
     socket.to(roomId).emit("draw-line", { 
-      prevPoint, currentPoint, color, strokeWidth 
+      prevPoint, currentPoint, color, strokeWidth, tool 
     });
   });
 
-  // 3. DRAW END (Save the FULL line to DB)
-  // This fires only when the user lifts their mouse.
-  socket.on("draw-end", async ({ roomId, line }) => {
+  // 3. DRAWING - SHAPES (Real-time Preview)
+  // NEW: Used to show the shape growing/moving on other screens while dragging
+  socket.on("draw-preview", ({ roomId, element }) => {
+    socket.to(roomId).emit("draw-preview", { element });
+  });
+
+  // 4. DRAW END (Save the finished Element to DB)
+  // Works for both Lines (mouse up) and Shapes (drag end)
+  socket.on("draw-end", async ({ roomId, element }) => {
     try {
       await Whiteboard.updateOne(
         { roomId },
-        { $push: { lines: line } } // Save the complete smooth curve
+        { $push: { lines: element } } // pushing generic 'element' to 'lines' array
       );
+      
+      // Broadcast the final solidified element to ensure sync
+      socket.to(roomId).emit("draw-end-sync", { element });
     } catch (err) {
-      console.error("Error saving line:", err);
+      console.error("Error saving element:", err);
     }
   });
 
-  // 4. UNDO (Sync across users)
+  // 5. UNDO (Sync across users)
   socket.on("undo", async (roomId) => {
     try {
       const room = await Whiteboard.findOne({ roomId });
       
       if (room && room.lines.length > 0) {
-        // 1. Remove the last line from the Database
+        // Remove the last item (Line or Shape)
         room.lines.pop(); 
         await room.save();
 
-        // 2. CRITICAL FIX: Instead of emitting "undo", send the FRESH data
-        // This ensures all clients (Screen A & B) are perfectly synced with the DB.
+        // Send the fresh list to everyone
         io.to(roomId).emit("load-canvas", room.lines); 
       }
     } catch (err) {
       console.error("Error undoing:", err);
     }
   });
-  // 5. CLEAR & CURSOR (Keep as is)
+
+  // 6. CLEAR CANVAS
   socket.on("clear", async (roomId) => {
     io.to(roomId).emit("clear");
     await Whiteboard.updateOne({ roomId }, { lines: [] });
   });
 
+  // 7. CURSOR PRESENCE
   socket.on("cursor-move", ({ x, y, roomId }) => {
     socket.to(roomId).emit("cursor-update", { 
       userId: socket.id, x, y, color: socket.id.slice(0, 6) 
     });
   });
+  // ... existing code ...
+
+  // 6. UPDATE ELEMENT (Editing Text/Shapes)
+  socket.on("update-element", async ({ roomId, element }) => {
+    try {
+      // Find the room and update the specific element in the 'lines' array by its ID
+      await Whiteboard.updateOne(
+        { roomId, "lines.id": element.id },
+        { $set: { "lines.$": element } }
+      );
+      
+      // Tell everyone else to update their local version
+      socket.to(roomId).emit("element-updated", element);
+    } catch (err) {
+      console.error("Error updating element:", err);
+    }
+  });
+
+  // ... rest of code (undo, clear, etc) ...
 });
 
 server.listen(3001, () => {
