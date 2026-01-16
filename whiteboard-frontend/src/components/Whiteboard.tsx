@@ -6,6 +6,12 @@ import { useParams } from 'react-router-dom';
 import Konva from 'konva';
 import Cursor from './Cursor'; 
 
+const backendUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+
+const socket = io(backendUrl, { 
+    transports: ['websocket'] // Helps with connection stability
+});
+
 // --- ICONS ---
 const Icons = {
   Select: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>,
@@ -17,7 +23,6 @@ const Icons = {
   Text: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,
 };
 
-const socket = io('http://localhost:3001');
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const throttle = (func: Function, limit: number) => {
@@ -354,7 +359,7 @@ const Whiteboard: React.FC = () => {
         <Grid stageScale={stageScale} stagePos={stagePos} width={window.innerWidth} height={window.innerHeight} />
         
         <Layer>
-          {elements.map((el, i) => {
+          {elements.map((el) => {
             // FIX: ADDED CURSOR EVENTS FOR DRAG
             const commonProps = {
                 key: el.id, id: el.id, draggable: tool === 'select',

@@ -10,7 +10,7 @@ const app = express();
 app.use(cors());
 
 // 1. CONNECT TO MONGODB
-mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/whiteboard")
+mongoose.connect(process.env.MONGO_URI || "mongodb+srv://ayushverma3006_db_user:utterlai@cluster0.oxv4wwb.mongodb.net/?appName=Cluster0")
   .then(() => console.log("MONGODB CONNECTED"))
   .catch((err) => console.log(err));
 
